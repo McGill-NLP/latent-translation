@@ -2,6 +2,15 @@
 
 [**Documentation**](#prerequisites) | [**Cite**](#cite) | [**Paper**](https://ducdauge.github.io/files/)
 
+## Example
+
+| NLL | Premise | Hypothesis 1 | Hypothesis 2 | Prediction |
+| --- | --- | --- | --- | --- |
+| | *Adam partide çok içti.* | *Ertesi gün başı ağrıdı.* | *Ertesi gün burnu aktı.* | |
+| -1.49 | He drank too much at the party. | She had a headache the next day. | The next day, he had a runny nose. | 1 |
+| -2.07 | The guy drank too much at the party. | He had a headache the next day. | The next day, his nose leaked. | 0 |
+| -2.26 | The guy drank a lot at the party. | He got a headache the next day. | The next day, his nose ran. | 0 |
+
 ## Prerequisites
 
 - Python 3.7
@@ -35,3 +44,5 @@ For cross-lingual transfer based on multilingual encoders:
 ```python
 python train.py --task_name <xcopa|pawsx|xnli> --mode multi --cls_model_name <xlmr|mbart50> --do_train --do_eval --do_refine --per_gpu_train_batch_size 4 --gradient_accumulation_steps 6 --learning_rate 8e-6 --max_seq_length 384 --num_train_epochs 2 --save_steps 1000
 ```
+
+## Visualisations
