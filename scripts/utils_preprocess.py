@@ -2,7 +2,7 @@ import csv
 import os
 from collections import defaultdict
 import argparse
-
+import json
 
 def pawsx_preprocess(args):
     def _preprocess_one_file(infile, outfile, remove_label=False):
@@ -89,6 +89,22 @@ def xnli_preprocess(args):
         print(f'reading file {infile}')
         _preprocess_file(infile, args.output_dir, split)
 
+def xcopa_preprocess(args):
+    letter2int = {"A": 0, "B": 1, "C": 2}
+    infile = os.path.join(args.data_dir, 'socialIQa_v1.4_trn.jsonl')
+    outfile = os.path.join(args.output_dir, 'train.en.jsonl')
+    with open(outfile, 'w') as fout:
+        for line in open(infile, 'r'):
+            example = json.loads(line)
+            new_example = {
+                "premise": example["context"],
+                "question": example["question"],
+                "choice1": example["answerA"],
+                "choice2": example["answerB"],
+                "choice3": example["answerC"],
+                "label": letter2int[example["correct"]]
+            }
+            fout.write(json.dumps(new_example) + "\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -104,5 +120,7 @@ if __name__ == "__main__":
 
     if args.task == 'pawsx':
         pawsx_preprocess(args)
-    if args.task == 'xnli':
+    elif args.task == 'xnli':
         xnli_preprocess(args)
+    elif args.task == 'xcopa':
+        xcopa_preprocess(args)

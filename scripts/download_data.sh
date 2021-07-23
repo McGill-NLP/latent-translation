@@ -44,4 +44,12 @@ git clone https://github.com/cambridgeltl/xcopa.git xcopa-tmp
 mkdir -p $DATA_DIR/xcopa
 mv xcopa-tmp/data/*/*.jsonl xcopa
 rm -rf xcopa-tmp
+wget https://maartensap.github.io/social-iqa/data/socialIQa_v1.4.tgz -q --show-progress
+mkdir -p $DATA_DIR/socialIQa
+tar -xvzf socialIQa_v1.4.tgz -C $DATA_DIR/socialIQa
+python $SCRIPTS_DIR/utils_preprocess.py \
+  --data_dir $DATA_DIR/socialIQa \
+  --output_dir $DATA_DIR/xcopa/ \
+  --task xcopa
+rm -rf socialIQa socialIQa_v1.4.tgz
 echo "Successfully downloaded data at $DATA_DIR/xcopa"
