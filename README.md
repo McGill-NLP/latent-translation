@@ -2,7 +2,13 @@
 
 [**Documentation**](#prerequisites) | [**Cite**](#cite) | [**Paper**](https://ducdauge.github.io/files/)
 
-## Example
+While often achieving SOTA results, “translation test” suffers from some limitations: 1) errors accumulate along the pipeline and cannot be corrected; 2) only the maximum-likelihood translation is generated, which is not necessarily the most relevant to the downstream task. 
+
+Instead, we integrate both translator and classifier into a single model, by treating the intermediate translations as a latent random variable. By initialising both components with pre-trained models, our method is suitable for few-shot learning. 
+
+By performing inference under this model, 1) we fine-tune the translator end-to-end or via Minimum Risk Training according to the downstream task loss; 2) we draw multiple translation samples to perform ensemble prediction in the downstream task. 
+
+For instance, the following example from Turkish XCOPA reveals how the maximum-likelihood translation leads to a wrong prediction. On the other hand, majority voting from multiple translation samples recover the correct prediction.
 
 | NLL | Premise | Hypothesis 1 | Hypothesis 2 | Prediction |
 | --- | --- | --- | --- | --- |
@@ -46,3 +52,6 @@ python train.py --task_name <xcopa|pawsx|xnli> --mode multi --cls_model_name <xl
 ```
 
 ## Visualisations
+Our method yields larger gains for languages whose BLEU scores are lower. This plot shows the correlation between NMT BLEU score and gains compared to vanilla translate test.
+
+![Correlation between NMT BLEU score and gains compared to vanilla translate test](img/lines.png "Correlation between NMT BLEU score and gains compared to vanilla translate test")
