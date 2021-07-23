@@ -21,7 +21,7 @@ The datasets for the experiments reported in the paper can be obtained with this
 
 ```bash
 cd scripts
-./download_data
+bash download_data.sh
 ```
 
 The traslations into English of their test sets via Google MT can be found at the following links:

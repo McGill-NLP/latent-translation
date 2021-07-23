@@ -1,6 +1,6 @@
 import csv
 import os
-import defaultdict
+from collections import defaultdict
 import argparse
 
 
