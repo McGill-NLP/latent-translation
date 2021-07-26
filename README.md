@@ -1,6 +1,6 @@
 # Modelling Latent Translations for Cross-Lingual Transfer
 
-[**Documentation**](#prerequisites) | [**Cite**](#cite) | [**Paper**](https://ducdauge.github.io/files/)
+[**Documentation**](#prerequisites) | [**Cite**](#cite) | [**Paper**](https://arxiv.org/pdf/2107.11353.pdf)
 
 While often achieving SOTA results, “translation test” suffers from some limitations: 1) errors accumulate along the pipeline and cannot be corrected; 2) only the maximum-likelihood translation is generated, which is not necessarily the most relevant to the downstream task. 
 
@@ -55,3 +55,16 @@ python train.py --task_name <xcopa|pawsx|xnli> --mode multi --cls_model_name <xl
 Our method yields larger gains for languages whose BLEU scores are lower. This plot shows the correlation between NMT BLEU score and gains compared to vanilla translate test.
 
 ![Correlation between NMT BLEU score and gains compared to vanilla translate test](img/lines.png "Correlation between NMT BLEU score and gains compared to vanilla translate test")
+
+## Cite
+```
+@misc{ponti2021modelling,
+      title={Modelling Latent Translations for Cross-Lingual Transfer}, 
+      author={Edoardo Maria Ponti and Julia Kreutzer and Ivan Vulić and Siva Reddy},
+      year={2021},
+      eprint={2107.11353},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/pdf/2107.11353.pdf},
+}
+```
