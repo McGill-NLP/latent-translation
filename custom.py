@@ -259,19 +259,7 @@ class TranslatorClassifier(nn.Module):
         if self.reranker is None:
             logits = logits.mean(1)
         else:
-            # new_input_ids : (batch_size * num_samples x num_choices x seq_len) OR (batch_size * num_samples x seq_len)
-            if len(new_input_ids.shape) == 2:
-                input_ids_to_rerank = new_input_ids.view(batch_size, self.num_samples, seq_len)
-                attention_mask_to_rerank = new_attention_mask.view(batch_size, self.num_samples, seq_len)
-            elif len(new_input_ids.shape) == 3:
-                num_choices = new_input_ids.shape[1]
-                input_ids_to_rerank = new_input_ids.view(batch_size, self.num_samples, num_choices, seq_len).transpose(1, 2).reshape(batch_size * num_choices, self.num_samples, seq_len)
-                attention_mask_to_rerank = new_attention_mask.view(batch_size, self.num_samples, num_choices, seq_len).transpose(1, 2).reshape(batch_size * num_choices, self.num_samples, seq_len)
-            else:
-                raise ValueError
-            reranker_outputs = self.reranker(input_ids=input_ids_to_rerank, attention_mask=attention_mask_to_rerank)
-            score_weights = F.softmax(reranker_outputs.logits, dim=-1).unsqueeze(-1)
-            logits = (logits * score_weights).sum(1)
+            logits = self.rerank(new_input_ids, new_attention_mask, logits, batch_size, seq_len)
 
         loss, nmt_loss = None, None
         if labels is not None:
@@ -319,6 +307,22 @@ class TranslatorClassifier(nn.Module):
         else:
             loss = log_prob[:, 0].sum()
         return loss
+
+    def rerank(self, new_input_ids, new_attention_mask, logits, batch_size, seq_len):
+        # new_input_ids : (batch_size * num_samples x num_choices x seq_len) OR (batch_size * num_samples x seq_len)
+        if len(new_input_ids.shape) == 2:
+            input_ids_to_rerank = new_input_ids.view(batch_size, self.num_samples, seq_len)
+            attention_mask_to_rerank = new_attention_mask.view(batch_size, self.num_samples, seq_len)
+        elif len(new_input_ids.shape) == 3:
+            num_choices = new_input_ids.shape[1]
+            input_ids_to_rerank = new_input_ids.view(batch_size, self.num_samples, num_choices, seq_len).transpose(1, 2).reshape(batch_size * num_choices, self.num_samples, seq_len)
+            attention_mask_to_rerank = new_attention_mask.view(batch_size, self.num_samples, num_choices, seq_len).transpose(1, 2).reshape(batch_size * num_choices, self.num_samples, seq_len)
+        else:
+            raise ValueError
+        reranker_outputs = self.reranker(input_ids=input_ids_to_rerank, attention_mask=attention_mask_to_rerank)
+        score_weights = F.softmax(reranker_outputs.logits, dim=-1).unsqueeze(-1)
+        logits = (logits * score_weights).sum(1)
+        return logits
 
     def rearrange(self, nmt_text, batch_size, num_sent, device):
         rearranged_nmt_text = []

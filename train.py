@@ -34,16 +34,12 @@ from transformers import (
     MBartForConditionalGeneration, MBart50TokenizerFast,
     MBartForSequenceClassification, MBartConfig,
     M2M100Config, M2M100Tokenizer, M2M100ForConditionalGeneration,
-    XLMRobertaForQuestionAnswering, RobertaForQuestionAnswering,
-    MBartForQuestionAnswering,
 )
 from transformers.hf_api import HfApi
-from transformers.data.metrics.squad_metrics import compute_predictions_logits, squad_evaluate
-from transformers.data.processors.squad import squad_convert_examples_to_features, SquadResult
 
 from utils import (
     convert_examples_to_features, convert_examples_MC_to_features,
-    SCExample, MCExample, TiDiQAProcessor,
+    SCExample, MCExample,
 )
 from custom import (
     TranslatorClassifier,
@@ -60,7 +56,6 @@ task2eval_languages = {'pawsx': ["de", "en", "es", "fr", "ja", "ko", "zh"],
                                 "ru", "sw", "th", "tr", "ur", "vi", "zh"],
                        'xcopa': ["en", "et", "ht", "id", "it", "qu", "sw", "ta",
                                  "th", "tr", "vi", "zh"],
-                       'tydiqa': ["ar", "bn", "en", "fi", "id", "ko", "ru", "sw", "te"]
                        }
 
 mode2eval_languages = {'multi': ["ht", "qu"],
@@ -71,7 +66,6 @@ mode2eval_languages = {'multi': ["ht", "qu"],
 task2labels = {'pawsx': ["0", "1"],
                'xnli': ["contradiction", "entailment", "neutral"],
                'xcopa': [None],
-               'tydiqa': [None, None],
                }
 
 
@@ -169,10 +163,7 @@ def train(args, train_dataset, model, tokenizer):
             inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
             if args.cls_model_name not in ['mbart50', 'm2m100', 'mt5']:
                 inputs["token_type_ids"] = batch[2]
-            if args.task_name == "tydiqa":
-                inputs.update({"start_positions": batch[3], "end_positions": batch[4]})
-            else:
-                inputs.update({"labels": batch[3]})
+            inputs.update({"labels": batch[3]})
             outputs = model(**inputs)
             loss = outputs.loss
 
@@ -209,7 +200,7 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                     result = evaluate(args, model, tokenizer, split='dev',
                                       language=args.train_language, prefix=str(global_step))
-                    metric = 'acc' if args.task_name != "tydiqa" else 'exact'
+                    metric = 'acc'
                     logger.info(" Dev accuracy {} = {}".format(args.train_language, result[metric]))
                     if result[metric] > best_score:
                         logger.info(" result={} > best_score={}".format(result[metric], best_score))
@@ -239,7 +230,7 @@ def train(args, train_dataset, model, tokenizer):
 
 
 def evaluate(args, model, tokenizer, split='train', language='en', prefix="",
-             output_file=None, label_list=None, output_only_prediction=True, prepare_trans=False):
+             output_file=None, label_list=None, output_only_prediction=True, preprocess_trans=False):
     """Evalute the model."""
     eval_task_names = (args.task_name,)
     eval_outputs_dirs = (args.output_dir,)
@@ -247,7 +238,7 @@ def evaluate(args, model, tokenizer, split='train', language='en', prefix="",
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
         eval_all = load_and_cache_examples(args, eval_task, tokenizer, split=split,
-                                           language=language, prepare_trans=prepare_trans,
+                                           language=language, preprocess_trans=preprocess_trans,
                                            get_features=True)
         eval_dataset, eval_examples, eval_features = eval_all
 
@@ -281,60 +272,26 @@ def evaluate(args, model, tokenizer, split='train', language='en', prefix="",
                 inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
                 if args.cls_model_name not in ['mbart50', 'm2m100', 'mt5']:
                     inputs["token_type_ids"] = batch[2]
-                if args.task_name == "tydiqa":
-                    example_indices = batch[3]
-                else:
-                    inputs.update({"labels": batch[3]})
+                inputs.update({"labels": batch[3]})
                 outputs = model(**inputs)
 
             nb_eval_steps += 1
 
-            if args.task_name != "tydiqa":
-                tmp_eval_loss, logits = outputs.loss, outputs.logits
-                eval_loss += tmp_eval_loss.mean().item()
+            tmp_eval_loss, logits = outputs.loss, outputs.logits
+            eval_loss += tmp_eval_loss.mean().item()
 
-                if preds is None:
-                    preds = logits.detach().cpu().numpy()
-                    out_label_ids = inputs["labels"].detach().cpu().numpy()
-                    sentences = inputs["input_ids"].detach().cpu().numpy()
-                else:
-                    preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-                    out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
-                    sentences = np.append(sentences, inputs["input_ids"].detach().cpu().numpy(), axis=0)
+            if preds is None:
+                preds = logits.detach().cpu().numpy()
+                out_label_ids = inputs["labels"].detach().cpu().numpy()
+                sentences = inputs["input_ids"].detach().cpu().numpy()
             else:
-                for example_index, sl, el in zip(example_indices, outputs.start_logits, outputs.end_logits):
-                    eval_feature = eval_features[example_index.item()]
-                    unique_id = int(eval_feature.unique_id)
+                preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+                out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
+                sentences = np.append(sentences, inputs["input_ids"].detach().cpu().numpy(), axis=0)
 
-                    start_logits = sl.detach().cpu().tolist()
-                    end_logits = el.detach().cpu().tolist()
-
-                    result = SquadResult(unique_id, start_logits, end_logits)
-                    qa_results.append(result)
-
-        if args.task_name != "tydiqa":
-            preds = np.argmax(preds, axis=1)
-            result = compute_metrics(preds, out_label_ids)
-            results.update(result)
-        else:
-            predictions = compute_predictions_logits(
-                eval_examples,
-                eval_features,
-                qa_results,
-                args.n_best_size,
-                args.max_answer_length,
-                False,
-                None,
-                None,
-                None,
-                args.verbose_logging,
-                False,
-                args.null_score_diff_threshold,
-                tokenizer,
-            )
-
-            # Compute the F1 and exact scores.
-            results = squad_evaluate(eval_examples, predictions)
+        preds = np.argmax(preds, axis=1)
+        result = compute_metrics(preds, out_label_ids)
+        results.update(result)
 
         logger.info("***** Eval results {} {} *****".format(prefix, language))
         for key in sorted(results.keys()):
@@ -343,7 +300,7 @@ def evaluate(args, model, tokenizer, split='train', language='en', prefix="",
     return results
 
 
-def refine(args, train_dataset, model, tokenizer, language, prepare_trans=False):
+def refine(args, train_dataset, model, tokenizer, language, preprocess_trans=False):
     """Train the model."""
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
@@ -401,10 +358,7 @@ def refine(args, train_dataset, model, tokenizer, language, prepare_trans=False)
             inputs = {"input_ids": batch[0], "attention_mask": batch[1]}
             if args.cls_model_name not in ['mbart50', 'm2m100', 'mt5']:
                 inputs["token_type_ids"] = batch[2]
-            if args.task_name == "tydiqa":
-                inputs.update({"start_positions": batch[3], "end_positions": batch[4]})
-            else:
-                inputs.update({"labels": batch[3]})
+            inputs.update({"labels": batch[3]})
             outputs = model(**inputs)
             loss = outputs.loss
 
@@ -434,7 +388,7 @@ def refine(args, train_dataset, model, tokenizer, language, prepare_trans=False)
                     logging_loss = tr_loss
 
     if args.local_rank in [-1, 0]:
-        result_test = evaluate(args, model, tokenizer, split='test', language=language, prefix=str(global_step), prepare_trans=prepare_trans)
+        result_test = evaluate(args, model, tokenizer, split='test', language=language, prefix=str(global_step), preprocess_trans=preprocess_trans)
 
         if args.do_analyse:
             translations_file = os.path.join(args.output_dir, 'translations_mrt.json')
@@ -455,7 +409,7 @@ def analyse(args, model, tokenizer, split='train', language='en', prefix='',
     results = {}
     for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
         eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, split=split,
-                                               language=language, prepare_trans=True)
+                                               language=language, preprocess_trans=True)
 
         if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
             os.makedirs(eval_output_dir)
@@ -580,18 +534,13 @@ def get_examples_MC(data_dir, language='en', split='train'):
 
 
 def load_and_cache_examples(args, task, tokenizer, split='train', language='en',
-                            prepare_trans=False, get_features=False):
+                            preprocess_trans=False, get_features=False):
     # Make sure only the first process in distributed training process the
     # dataset, and the others will use the cache
     if args.local_rank not in [-1, 0] and split != 'train':
         torch.distributed.barrier()
     if args.task_name in ['xcopa'] and split == 'dev':
         split = 'val'
-    elif args.task_name in ['tydiqa']:
-        if split == 'dev' and language != "en":
-            split = 'train'
-        elif split == 'test' and language != "en":
-            split = "dev"
 
     # Load data features from cache or dataset file
     cached_features_file = os.path.join(
@@ -602,7 +551,7 @@ def load_and_cache_examples(args, task, tokenizer, split='train', language='en',
             str(task),
             str(language),
             tokenizer.name_or_path.replace("/", "_"),
-            "for_nmt" if prepare_trans else "for_cls",
+            "for_nmt" if preprocess_trans else "for_cls",
         ),
     )
     if os.path.exists(cached_features_file) and not get_features:
@@ -614,33 +563,20 @@ def load_and_cache_examples(args, task, tokenizer, split='train', language='en',
         if task in ['xcopa']:
             examples = get_examples_MC(args.data_dir, language, split)
             convert_fn = convert_examples_MC_to_features
-        elif task in ['tydiqa']:
-            examples = TiDiQAProcessor().get_examples(args.data_dir, language, split)
         else:
             examples = get_examples_SC(args.data_dir, language, split)
             convert_fn = convert_examples_to_features
 
-        if task in ['tydiqa']:
-            features = squad_convert_examples_to_features(
-                examples=examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                doc_stride=args.doc_stride,
-                max_query_length=args.max_query_length,
-                is_training=(split == "train"),
-                threads=1,
-                )
-        else:
-            features = convert_fn(
-                examples,
-                tokenizer,
-                label_list=label_list,
-                max_length=args.max_seq_length,
-                pad_on_left=False,
-                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
-                pad_token_segment_id=0,
-                prepare_trans=prepare_trans,
-            )
+        features = convert_fn(
+            examples,
+            tokenizer,
+            label_list=label_list,
+            max_length=args.max_seq_length,
+            pad_on_left=False,
+            pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+            pad_token_segment_id=0,
+            preprocess_trans=preprocess_trans,
+        )
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
@@ -651,37 +587,13 @@ def load_and_cache_examples(args, task, tokenizer, split='train', language='en',
         torch.distributed.barrier()
 
     # Convert to Tensors and build dataset
-    if args.task_name not in ["tydiqa"]:
-        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-        all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
-        all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long) if features[0].token_type_ids is not None else torch.zeros(all_input_ids.shape, dtype=torch.long)
-        all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
+    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+    all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+    all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long) if features[0].token_type_ids is not None else torch.zeros(all_input_ids.shape, dtype=torch.long)
+    all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
 
-        dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
-    else:
-        # Convert to Tensors and build dataset
-        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-        all_attention_masks = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
-        all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+    dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
 
-        if split != "train":
-            all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-            dataset = TensorDataset(
-                all_input_ids,
-                all_attention_masks,
-                all_token_type_ids,
-                all_example_index,
-            )
-        else:
-            all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
-            all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
-            dataset = TensorDataset(
-                all_input_ids,
-                all_attention_masks,
-                all_token_type_ids,
-                all_start_positions,
-                all_end_positions
-            )
     if get_features:
         return dataset, examples, features
     return dataset
@@ -745,18 +657,17 @@ def get_model(args, language, cls_tokenizer, model):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--task_name", required=True, choices=['pawsx', 'xnli', 'xcopa', 'tydiqa'],
+    parser.add_argument("--task_name", required=True, choices=['pawsx', 'xnli', 'xcopa'],
                         help="""1) PAWS-X Paraphrase Identification.
                                 2) XNLI Natural Language Inference.
                                 3) XCOPA Commonsense Reasoning.
-                                4) TyDIQA Question Answering.
                                 """)
     parser.add_argument('--mode', type=str, required=True,
                         choices=['multi', 'trans-hard', 'trans-soft'],
                         help='Cross-lingual knowledge transfer method')
     parser.add_argument('--nmt_model_name', type=str, default="", choices=['', 'marian', 'google', 'mbart50', 'm2m100'],
                         help='pre-traslated data for hard translation')
-    parser.add_argument('--cls_model_name', type=str, default="", choices=['xlmr', 'mbart50', 'm2m100', 'mt5'],
+    parser.add_argument('--cls_model_name', type=str, default="roberta", choices=['roberta', 'xlmr', 'mbart50', 'm2m100', 'mt5'],
                         help='pre-traslated data for hard translation')
     parser.add_argument("--num_samples", default=1, type=int,
                         help="How many samples during generation.")
@@ -833,12 +744,11 @@ def main():
     args = parser.parse_args()
 
     if args.mode == 'multi':
-        assert not args.nmt_model_name and args.cls_model_name
+        assert not args.nmt_model_name
     else:
-        assert args.nmt_model_name and not args.cls_model_name
-        if args.mode == 'trans-soft':
-            assert args.nmt_model_name not in ["google"]
-        elif args.mode == 'trans-hard' and args.nmt_model_name == 'google':
+        assert args.nmt_model_name
+        if args.nmt_model_name == 'google':
+            assert args.mode != 'trans-soft'
             assert not args.do_sample and not (args.num_samples > 1)
 
     data_extra_dir = 'google' if args.nmt_model_name == 'google' else ''
@@ -911,43 +821,36 @@ def main():
     if args.local_rank not in [-1, 0]:
         torch.distributed.barrier()
 
-    if args.mode in ["trans-soft", "trans-hard"]:
+    if args.cls_model_name == "roberta":
         config_class, tokenizer_class = (RobertaConfig, RobertaTokenizer)
         args.model_name_or_path = "roberta-large"
         if args.task_name in ["xcopa"]:
             model_class = RobertaForMultipleChoice
-        elif args.task_name in ["tydiqa"]:
-            model_class = RobertaForQuestionAnswering
         else:
             model_class = RobertaForSequenceClassification
-    elif args.mode in ["multi"]:
-        if args.cls_model_name == "xlmr":
-            config_class, tokenizer_class = (XLMRobertaConfig, XLMRobertaTokenizer)
-            args.model_name_or_path = "xlm-roberta-large"
-            if args.task_name in ["xcopa"]:
-                model_class = XLMRobertaForMultipleChoice
-            elif args.task_name in ["tydiqa"]:
-                model_class = XLMRobertaForQuestionAnswering
-            else:
-                model_class = XLMRobertaForSequenceClassification
-        elif args.cls_model_name == "mbart50":
-            config_class, tokenizer_class = (MBartConfig, MBart50TokenizerFast)
-            args.model_name_or_path = "facebook/mbart-large-50"
-            if args.task_name in ["xcopa"]:
-                model_class = MBartForMultipleChoice
-            elif args.task_name in ["tydiqa"]:
-                model_class = MBartForQuestionAnswering
-            else:
-                model_class = MBartForSequenceClassification
-        elif args.cls_model_name == "m2m100":
-            config_class, tokenizer_class = (M2M100Config, M2M100Tokenizer)
-            args.model_name_or_path = 'facebook/m2m100_1.2B'
-            if args.task_name in ["xcopa"]:
-                model_class = M2M100ForMultipleChoice
-            else:
-                raise NotImplementedError
-        elif args.cls_model_name == "mt5":
+    elif args.cls_model_name == "xlmr":
+        config_class, tokenizer_class = (XLMRobertaConfig, XLMRobertaTokenizer)
+        args.model_name_or_path = "xlm-roberta-large"
+        if args.task_name in ["xcopa"]:
+            model_class = XLMRobertaForMultipleChoice
+        else:
+            model_class = XLMRobertaForSequenceClassification
+    elif args.cls_model_name == "mbart50":
+        config_class, tokenizer_class = (MBartConfig, MBart50TokenizerFast)
+        args.model_name_or_path = "facebook/mbart-large-50"
+        if args.task_name in ["xcopa"]:
+            model_class = MBartForMultipleChoice
+        else:
+            model_class = MBartForSequenceClassification
+    elif args.cls_model_name == "m2m100":
+        config_class, tokenizer_class = (M2M100Config, M2M100Tokenizer)
+        args.model_name_or_path = 'facebook/m2m100_1.2B'
+        if args.task_name in ["xcopa"]:
+            model_class = M2M100ForMultipleChoice
+        else:
             raise NotImplementedError
+    elif args.cls_model_name == "mt5":
+        raise NotImplementedError
 
     config = config_class.from_pretrained(
         args.model_name_or_path,
@@ -996,17 +899,17 @@ def main():
                 tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=False)
                 model = model_class.from_pretrained(best_checkpoint)
 
-                prepare_trans = False
+                preprocess_trans = False
                 if args.mode in ["trans-soft", "trans-hard"] and args.nmt_model_name != 'google' and language != "en":
                     cls_tokenizer = tokenizer
-                    prepare_trans = True
+                    preprocess_trans = True
                     tokenizer, model = get_model(args, language, cls_tokenizer, model)
                     if model is None:
                         continue
 
                 model.to(args.device)
                 result = evaluate(args, model, tokenizer, split='test', language=language,
-                                  prefix='best_checkpoint', prepare_trans=prepare_trans)
+                                  prefix='best_checkpoint', preprocess_trans=preprocess_trans)
                 for key, value in result.items():
                     writer.write(f'{key}\t{language}\t{value}\n')
                     logger.info(f'{key}\t{language}\t{value}')
@@ -1022,24 +925,23 @@ def main():
                 tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path, do_lower_case=False)
                 model = model_class.from_pretrained(best_checkpoint)
 
-                prepare_trans = False
+                preprocess_trans = False
                 if args.mode in ["trans-soft", "trans-hard"] and args.nmt_model_name != 'google':
                     cls_tokenizer = tokenizer
-                    prepare_trans = True
+                    preprocess_trans = True
                     tokenizer, model = get_model(args, language, cls_tokenizer, model)
                     if model is None:
                         continue
 
                 model.to(args.device)
                 tgt_train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, split='dev',
-                                                            language=language, prepare_trans=prepare_trans)
-                global_step, tr_loss, result = refine(args, tgt_train_dataset, model, tokenizer, language, prepare_trans=prepare_trans)
+                                                            language=language, preprocess_trans=preprocess_trans)
+                global_step, tr_loss, result = refine(args, tgt_train_dataset, model, tokenizer, language, preprocess_trans=preprocess_trans)
                 for key, value in result.items():
                     writer.write(f'{key}\t{language}\t{value}\n')
                     logger.info(f'{key}\t{language}\t{value}')
 
     # Analysis
-    # TODO: add TyDiQA
     if args.do_analyse and args.local_rank in [-1, 0]:
         assert args.mode in ["trans-hard"] and args.nmt_model_name != 'google'
         translations_file = os.path.join(args.output_dir, 'translations.json')

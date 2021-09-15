@@ -130,7 +130,7 @@ def convert_examples_to_features(
     pad_token=0,
     pad_token_segment_id=0,
     mask_padding_with_zero=True,
-    prepare_trans=False,
+    preprocess_trans=False,
 ):
     """
     Loads a data file into a list of ``InputFeatures``
@@ -158,7 +158,7 @@ def convert_examples_to_features(
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:
             logger.info("Writing example %d" % (ex_index))
-        if not prepare_trans:
+        if not preprocess_trans:
             inputs = tokenizer.encode_plus(example.text_a, example.text_b, add_special_tokens=True,
                                            max_length=max_length, pad_to_max_length=True)
             input_ids, attention_mask = inputs["input_ids"], inputs["attention_mask"]
@@ -175,7 +175,7 @@ def convert_examples_to_features(
             )
         label = label_map[example.label]
 
-        if ex_index < 5 and not prepare_trans:
+        if ex_index < 5 and not preprocess_trans:
             logger.info("*** Example ***")
             logger.info("guid: %s" % (example.guid))
             logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
@@ -202,7 +202,7 @@ def convert_examples_MC_to_features(
     pad_on_left=False,
     pad_token=0,
     mask_padding_with_zero=True,
-    prepare_trans=False
+    preprocess_trans=False
 ):
     """
     Loads a data file into a list of `InputFeatures`
@@ -213,7 +213,7 @@ def convert_examples_MC_to_features(
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d", ex_index, len(examples))
         choices_inputs = []
-        if not prepare_trans:
+        if not preprocess_trans:
             for text_b in example.endings:
                 text_a = (example.contexts  + " " + example.question).strip()
                 inputs = tokenizer.encode_plus(text_a, text_b, add_special_tokens=True, max_length=max_length, pad_to_max_length=True)
