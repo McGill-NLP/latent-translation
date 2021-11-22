@@ -13,9 +13,9 @@ For instance, the following example from Turkish XCOPA reveals how the maximum-l
 | NLL | Premise | Hypothesis 1 | Hypothesis 2 | Prediction |
 | --- | --- | --- | --- | --- |
 | | *Adam partide çok içti.* | *Ertesi gün başı ağrıdı.* | *Ertesi gün burnu aktı.* | |
-| -1.49 | He drank too much at the party. | She had a headache the next day. | The next day, he had a runny nose. | 1 |
-| -2.07 | The guy drank too much at the party. | He had a headache the next day. | The next day, his nose leaked. | 0 |
-| -2.26 | The guy drank a lot at the party. | He got a headache the next day. | The next day, his nose ran. | 0 |
+| 1.49 | He drank too much at the party. | She had a headache the next day. | The next day, he had a runny nose. | 1 |
+| 2.07 | The guy drank too much at the party. | He had a headache the next day. | The next day, his nose leaked. | 0 |
+| 2.26 | The guy drank a lot at the party. | He got a headache the next day. | The next day, his nose ran. | 0 |
 
 ## Prerequisites
 
